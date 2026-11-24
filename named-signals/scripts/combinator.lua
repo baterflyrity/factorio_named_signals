@@ -4,7 +4,8 @@
 --   entity  = видимый комбинатор,
 --   output  = скрытый константный комбинатор,
 --   config  = конфиг условий (см. logic.lua),
---   members = { [имя группы] = { LuaEntity, ... } } -- подключённые источники,
+--   members = { [имя группы] = { {entity, red, green}, ... } } -- подключённые источники,
+--   each    = результаты отдельных условий (для подсветки в GUI),
 --   last    = сериализованный последний выход,
 --   passed  = результат условий на последнем обновлении,
 --   out_count = число сигналов на выходе,
@@ -66,34 +67,32 @@ function M.on_destroyed(unit_number)
   storage.combinators[unit_number] = nil
 end
 
--- Какие именованные источники отдают сигналы во входные сети комбинатора.
--- Сравниваем network_id: это дешевле и надёжнее, чем обходить граф проводов
--- (столбы, ответвления и т. п. движок уже учёл за нас).
+-- Какие именованные источники отдают сигналы во входные сети комбинатора
+-- и каким цветом провода. Сравниваем network_id: это дешевле и надёжнее,
+-- чем обходить граф проводов (столбы и ответвления движок уже учёл).
+--   members[имя] = { { entity = LuaEntity, red = bool, green = bool }, ... }
 function M.refresh_members(c)
-  local ids = {}
-  local any = false
-  for _, wid in ipairs(INPUTS) do
-    local net = c.entity.get_circuit_network(wid)
-    if net then
-      ids[net.network_id] = true
-      any = true
-    end
-  end
+  local red_net = c.entity.get_circuit_network(INPUTS[1])
+  local green_net = c.entity.get_circuit_network(INPUTS[2])
+  local red_id = red_net and red_net.network_id
+  local green_id = green_net and green_net.network_id
   local members = {}
-  if any then
+  if red_id or green_id then
     for _, rec in pairs(storage.sources) do
       local e = rec.entity
       if e.valid then
+        local on_red, on_green = false, false
         for _, id in ipairs(sources.output_network_ids(e)) do
-          if ids[id] then
-            local list = members[rec.name]
-            if not list then
-              list = {}
-              members[rec.name] = list
-            end
-            list[#list + 1] = e
-            break
+          if id == red_id then on_red = true end
+          if id == green_id then on_green = true end
+        end
+        if on_red or on_green then
+          local list = members[rec.name]
+          if not list then
+            list = {}
+            members[rec.name] = list
           end
+          list[#list + 1] = { entity = e, red = on_red, green = on_green }
         end
       end
     end
@@ -101,24 +100,58 @@ function M.refresh_members(c)
   c.members = members
 end
 
-function M.read_group(c, name)
+-- Вклад группы с учётом выбранных проводов. Каждый объект считается один раз,
+-- даже если подключён к комбинатору и красным, и зелёным проводом.
+function M.read_group(c, name, nets)
   local map = {}
   local list = c.members[name]
   if list then
-    for _, e in ipairs(list) do
-      if e.valid then signals.merge(map, (sources.read(e))) end
+    for _, m in ipairs(list) do
+      if m.entity.valid and ((nets.red and m.red) or (nets.green and m.green)) then
+        signals.merge(map, (sources.read(m.entity)))
+      end
     end
   end
   return map
 end
 
-local function read_network(entity)
+local function read_net(entity, wid)
   local map = {}
-  for _, wid in ipairs(INPUTS) do
-    local net = entity.get_circuit_network(wid)
-    if net then signals.add_signals(map, net.signals) end
-  end
+  local net = entity.get_circuit_network(wid)
+  if net then signals.add_signals(map, net.signals) end
   return map
+end
+
+-- Контекст для движка условий с ленивым чтением и кэшем на один тик.
+function M.make_context(c)
+  local entity = c.entity
+  local red, green
+  local groups = {}
+  return {
+    value = function(sig, source, nets)
+      local k = signals.key(sig)
+      if not k then return 0 end
+      if source then
+        local gk = source .. (nets.red and "|r" or "|-") .. (nets.green and "g" or "-")
+        local m = groups[gk]
+        if not m then
+          m = M.read_group(c, source, nets)
+          groups[gk] = m
+        end
+        return m[k] or 0
+      end
+      local v = 0
+      if nets.red then
+        red = red or read_net(entity, INPUTS[1])
+        v = v + (red[k] or 0)
+      end
+      if nets.green then
+        green = green or read_net(entity, INPUTS[2])
+        v = v + (green[k] or 0)
+      end
+      return v
+    end,
+  }
 end
 
 local function write_output(c, outputs)
@@ -139,24 +172,13 @@ function M.update(c)
   local entity = c.entity
   if not (entity.valid and c.output and c.output.valid) then return end
 
-  local passed, outputs = false, {}
+  local passed, outputs, each = false, {}, {}
   if entity.status ~= defines.entity_status.no_power then
-    local memo = {}
-    local ctx = {
-      network = read_network(entity),
-      group = function(name)
-        local m = memo[name]
-        if not m then
-          m = M.read_group(c, name)
-          memo[name] = m
-        end
-        return m
-      end,
-    }
-    passed, outputs = logic.compute(ctx, c.config)
+    passed, outputs, each = logic.compute(M.make_context(c), c.config)
   end
 
   c.passed = passed
+  c.each = each
   c.out_count = #outputs
   local key = signals.serialize(outputs)
   if key == c.last then return end

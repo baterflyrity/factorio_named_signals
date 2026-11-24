@@ -6,6 +6,7 @@ local names = require("scripts.names")
 local combinator = require("scripts.combinator")
 local sources = require("scripts.sources")
 local gui = require("scripts.gui")
+local logic = require("scripts.logic")
 
 local function init_storage()
   storage.combinators = storage.combinators or {}
@@ -19,6 +20,22 @@ script.on_init(init_storage)
 
 script.on_configuration_changed(function()
   init_storage()
+  -- Миграция: дополнить старые конфиги (networks появились в 0.2.0),
+  -- пересчитать подключения в новом формате и закрыть окна старой вёрстки.
+  for _, c in pairs(storage.combinators) do
+    c.config = logic.normalize(c.config)
+    c.members = {}
+    c.last = nil
+  end
+  storage.topology_dirty = true
+  for _, player in pairs(game.players) do
+    gui.close(player)
+    gui.close_source_panel(player)
+    -- В 0.1.0 панели назывались ns_source_panel1, ns_source_panel2...
+    for _, child in pairs(player.gui.relative.children) do
+      if child.name:sub(1, 15) == "ns_source_panel" then child.destroy() end
+    end
+  end
   -- Рецепт добавлен в уже изученную технологию: открыть его в старых сохранениях.
   for _, force in pairs(game.forces) do
     local tech = force.technologies["circuit-network"]
@@ -128,6 +145,7 @@ script.on_event(defines.events.on_gui_click, gui.on_click)
 script.on_event(defines.events.on_gui_elem_changed, gui.on_elem_changed)
 script.on_event(defines.events.on_gui_selection_state_changed, gui.on_selection)
 script.on_event(defines.events.on_gui_text_changed, gui.on_text_changed)
+script.on_event(defines.events.on_gui_checked_state_changed, gui.on_checked)
 
 ---------------------------------------------------------------------------
 -- Тик: пересканирование топологии, обновление комбинаторов, обновление окон.
