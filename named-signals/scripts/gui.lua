@@ -141,8 +141,16 @@ local function row_frame(parent, name, fulfilled)
   f.style.horizontally_stretchable = true
   f.style.left_padding = 4
   f.style.right_padding = 4
-  f.style.vertical_align = "center"
   return f
+end
+
+-- Расстояние между дочерними элементами (vertical_spacing) бывает только у
+-- flow и таблиц, не у frame/scroll-pane: поэтому содержимое кладём во flow.
+local function list_flow(parent, spacing)
+  local flow = parent.add({ type = "flow", name = "ns_list", direction = "vertical" })
+  flow.style.vertical_spacing = spacing or 4
+  flow.style.horizontally_stretchable = true
+  return flow
 end
 
 local function trash_button(parent, tags)
@@ -168,10 +176,10 @@ local function fill_content(content, c)
   local status = content.add({ type = "flow", name = "ns_status", direction = "horizontal" })
   status.style.vertical_align = "center"
   local sprite, text = status_view(c.entity)
-  status.add({ type = "sprite", name = "light", style = "status_image", sprite = sprite })
-  status.add({ type = "label", name = "text", caption = text })
+  status.add({ type = "sprite", name = "ns_light", style = "status_image", sprite = sprite })
+  status.add({ type = "label", name = "ns_text", caption = text })
   spacer(status)
-  status.add({ type = "label", name = "result", caption = result_caption(c) })
+  status.add({ type = "label", name = "ns_result", caption = result_caption(c) })
 
   local preview_frame = content.add({ type = "frame", style = "deep_frame_in_shallow_frame" })
   local preview = preview_frame.add({ type = "entity-preview", style = "wide_entity_button" })
@@ -185,9 +193,9 @@ local function fill_content(content, c)
   conds.style.maximal_height = 360
   conds.style.horizontally_stretchable = true
   conds.style.padding = 4
-  conds.style.vertical_spacing = 4
+  local cond_list = list_flow(conds)
   for i, cond in ipairs(c.config.conditions) do
-    local row = row_frame(conds, "row_" .. i, each[i])
+    local row = row_frame(cond_list, "row_" .. i, each[i])
 
     if i == 1 then
       local pad = row.add({ type = "empty-widget" })
@@ -238,9 +246,9 @@ local function fill_content(content, c)
   outs.style.maximal_height = 240
   outs.style.horizontally_stretchable = true
   outs.style.padding = 4
-  outs.style.vertical_spacing = 4
+  local out_list = list_flow(outs)
   for i, out in ipairs(c.config.outputs) do
-    local row = row_frame(outs, "row_" .. i, false)
+    local row = row_frame(out_list, "row_" .. i, false)
     add_signal_button(row, out.signal, { ns_action = "signal", unit = unit, row = i, side = "out" })
     local mdd = row.add({
       type = "drop-down", items = { "1", "Значение со входа" },
@@ -359,8 +367,8 @@ function M.toggle_help(player)
   end
   h = player.gui.screen.add({ type = "frame", name = HELP, direction = "vertical" })
   titlebar(h, "Справка: комбинатор с именами", "help_close", false)
-  local content = h.add({ type = "frame", style = "inside_shallow_frame_with_padding", direction = "vertical" })
-  content.style.vertical_spacing = 8
+  local box = h.add({ type = "frame", style = "inside_shallow_frame_with_padding", direction = "vertical" })
+  local content = list_flow(box, 8)
   for _, section in ipairs(HELP_TEXT) do
     heading(content, section[1])
     wrapped_label(content, section[2], 460)
@@ -399,13 +407,13 @@ local function group_caption(entity)
 end
 
 local function build_source_panel(frame, entity)
-  local content = frame.add({ type = "frame", name = "ns_content", style = "inside_shallow_frame_with_padding", direction = "vertical" })
-  content.style.vertical_spacing = 6
+  local box = frame.add({ type = "frame", name = "ns_box", style = "inside_shallow_frame_with_padding", direction = "vertical" })
+  local content = list_flow(box, 6)
   wrapped_label(content, "Одинаковое имя у нескольких объектов объединяет их в группу.", 240)
   local tf = content.add({ type = "textfield", text = sources.get_name(entity) or "", tags = { ns_action = "source_name" } })
   tf.style.width = 240
-  content.add({ type = "label", name = "group", caption = group_caption(entity) })
-  local st = wrapped_label(content, source_status_caption(entity), 240, "status")
+  content.add({ type = "label", name = "ns_group", caption = group_caption(entity) })
+  local st = wrapped_label(content, source_status_caption(entity), 240, "ns_state")
   st.style.font_color = WARN_COLOR
 end
 
@@ -584,7 +592,8 @@ function M.on_text_changed(e)
       sources.set_name(entity, el.text)
       local player = game.get_player(e.player_index)
       local panel = player and source_panel(player)
-      if panel and panel.ns_content then panel.ns_content.group.caption = group_caption(entity) end
+      local list = panel and panel.ns_box and panel.ns_box.ns_list
+      if list then list.ns_group.caption = group_caption(entity) end
     end
   elseif tags.ns_action == "right_const" then
     local c = get_c(tags)
@@ -609,11 +618,11 @@ function M.tick()
       local status = content.ns_status
       if status then
         local sprite, text = status_view(c.entity)
-        status.light.sprite = sprite
-        status.text.caption = text
-        status.result.caption = result_caption(c)
+        status.ns_light.sprite = sprite
+        status.ns_text.caption = text
+        status.ns_result.caption = result_caption(c)
       end
-      local conds = content.ns_conds
+      local conds = content.ns_conds and content.ns_conds.ns_list
       if conds then
         local each = c.each or {}
         for i = 1, #c.config.conditions do
@@ -624,7 +633,6 @@ function M.tick()
             row.style.horizontally_stretchable = true
             row.style.left_padding = 4
             row.style.right_padding = 4
-            row.style.vertical_align = "center"
           end
         end
       end
@@ -636,9 +644,8 @@ function M.tick()
       if p then M.close_source_panel(p) else storage.open_source[pi] = nil end
     else
       local panel = source_panel(p)
-      if panel and panel.ns_content then
-        panel.ns_content.status.caption = source_status_caption(entity)
-      end
+      local list = panel and panel.ns_box and panel.ns_box.ns_list
+      if list then list.ns_state.caption = source_status_caption(entity) end
     end
   end
 end
