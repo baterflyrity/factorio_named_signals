@@ -1,0 +1,9 @@
+{
+  "name": "named-signals",
+  "version": "0.1.0",
+  "title": "Named Signals",
+  "author": "you",
+  "factorio_version": "2.1",
+  "dependencies": ["base >= 2.0"],
+  "description": "Сравнивающий комбинатор, который различает сигналы разных сундуков и конвейеров по имени источника."
+}
