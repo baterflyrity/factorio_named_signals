@@ -15,6 +15,7 @@ local function init_storage()
   storage.open = storage.open or {}
   storage.open_source = storage.open_source or {}
   storage.relays = storage.relays or {}
+  storage.relay_by_part = storage.relay_by_part or {}
   if storage.topology_dirty == nil then storage.topology_dirty = true end
 end
 
@@ -30,6 +31,7 @@ script.on_configuration_changed(function()
     c.last = nil
   end
   storage.topology_dirty = true
+  relay.migrate() -- 0.3.x -> 0.4.0: видимой частью реле стала опора
   for _, player in pairs(game.players) do
     gui.close(player)
     gui.close_source_panel(player)
@@ -56,7 +58,9 @@ local function on_built(e)
   if entity.name == names.combinator then
     combinator.on_built(entity, tags)
   elseif entity.name == names.relay then
-    relay.on_built(entity)
+    relay.on_built(entity, tags)
+  elseif entity.type == "electric-pole" then
+    relay.strip_auto_connections(entity)
   elseif sources.is_source(entity) and tags and tags.ns_name then
     sources.set_name(entity, tags.ns_name)
   end
@@ -64,7 +68,7 @@ end
 
 local build_filters = {
   { filter = "name", name = names.combinator },
-  { filter = "name", name = names.relay },
+  { filter = "type", type = "electric-pole" }, -- реле и чужие опоры (запрет автоподключения к реле)
   { filter = "type", type = "container" },
   { filter = "type", type = "logistic-container" },
   { filter = "type", type = "transport-belt" },
@@ -109,7 +113,12 @@ script.on_event(defines.events.on_player_setup_blueprint, function(e)
   if not mapping then return end
   for index, entity in pairs(mapping) do
     if entity.valid then
-      if entity.name == names.combinator then
+      if entity.name == names.relay then
+        local t = relay.blueprint_tags(entity)
+        if t then
+          pcall(function() bp.set_blueprint_entity_tag(index, "ns_relay", t) end)
+        end
+      elseif entity.name == names.combinator then
         local c = storage.combinators[entity.unit_number]
         if c then
           pcall(function() bp.set_blueprint_entity_tag(index, "ns_config", c.config) end)
@@ -145,7 +154,10 @@ end)
 ---------------------------------------------------------------------------
 -- GUI
 ---------------------------------------------------------------------------
-script.on_event(defines.events.on_gui_opened, gui.on_opened)
+script.on_event(defines.events.on_gui_opened, function(e)
+  if relay.on_opened(e) then return end
+  gui.on_opened(e)
+end)
 script.on_event(defines.events.on_gui_closed, gui.on_closed)
 script.on_event(defines.events.on_gui_click, gui.on_click)
 script.on_event(defines.events.on_gui_elem_changed, gui.on_elem_changed)
@@ -160,6 +172,7 @@ script.on_event(defines.events.on_gui_checked_state_changed, gui.on_checked)
 ---------------------------------------------------------------------------
 script.on_event(defines.events.on_tick, function(e)
   local tick = e.tick
+  relay.tick()
   if storage.topology_dirty or tick % settings.global["ns-topology-interval"].value == 0 then
     storage.topology_dirty = false
     for _, c in pairs(storage.combinators) do
