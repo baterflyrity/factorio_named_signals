@@ -100,19 +100,19 @@ function M.refresh_members(c)
   c.members = members
 end
 
--- Вклад группы с учётом выбранных проводов. Каждый объект считается один раз,
--- даже если подключён к комбинатору и красным, и зелёным проводом.
-function M.read_group(c, name, nets)
-  local map = {}
+-- Вклад группы с учётом выбранных проводов, свёрнутый агрегатом.
+-- Каждый объект считается один раз, даже если подключён и красным, и зелёным.
+function M.read_group(c, name, nets, agg)
+  local maps = {}
   local list = c.members[name]
   if list then
     for _, m in ipairs(list) do
       if m.entity.valid and ((nets.red and m.red) or (nets.green and m.green)) then
-        signals.merge(map, (sources.read(m.entity)))
+        maps[#maps + 1] = (sources.read(m.entity))
       end
     end
   end
-  return map
+  return signals.aggregate(maps, agg or "sum")
 end
 
 local function read_net(entity, wid)
@@ -122,34 +122,32 @@ local function read_net(entity, wid)
   return map
 end
 
--- Контекст для движка условий с ленивым чтением и кэшем на один тик.
+-- Контекст для движка условий: карты сигналов с ленивым чтением и кэшем
+-- на один расчёт (один тик или одно обновление окна).
 function M.make_context(c)
   local entity = c.entity
   local red, green
-  local groups = {}
+  local memo = {}
   return {
-    value = function(sig, source, nets)
-      local k = signals.key(sig)
-      if not k then return 0 end
+    map = function(source, nets, agg)
+      local mk = (source or "") .. "|" .. (nets.red and "r" or "-") .. (nets.green and "g" or "-") .. "|" .. (agg or "")
+      local m = memo[mk]
+      if m then return m end
       if source then
-        local gk = source .. (nets.red and "|r" or "|-") .. (nets.green and "g" or "-")
-        local m = groups[gk]
-        if not m then
-          m = M.read_group(c, source, nets)
-          groups[gk] = m
+        m = M.read_group(c, source, nets, agg)
+      else
+        m = {}
+        if nets.red then
+          red = red or read_net(entity, INPUTS[1])
+          signals.merge(m, red)
         end
-        return m[k] or 0
+        if nets.green then
+          green = green or read_net(entity, INPUTS[2])
+          signals.merge(m, green)
+        end
       end
-      local v = 0
-      if nets.red then
-        red = red or read_net(entity, INPUTS[1])
-        v = v + (red[k] or 0)
-      end
-      if nets.green then
-        green = green or read_net(entity, INPUTS[2])
-        v = v + (green[k] or 0)
-      end
-      return v
+      memo[mk] = m
+      return m
     end,
   }
 end

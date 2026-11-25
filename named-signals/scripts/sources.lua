@@ -11,6 +11,9 @@ M.TYPES = {
   ["container"] = true,
   ["logistic-container"] = true,
   ["transport-belt"] = true,
+  ["storage-tank"] = true,
+  ["inserter"] = true,
+  ["accumulator"] = true,
 }
 
 M.CONNECTORS = { defines.wire_connector_id.circuit_red, defines.wire_connector_id.circuit_green }
@@ -18,9 +21,11 @@ M.CONNECTORS = { defines.wire_connector_id.circuit_red, defines.wire_connector_i
 local belt_modes = defines.control_behavior.transport_belt
   and defines.control_behavior.transport_belt.content_read_mode
 local HOLD = belt_modes and belt_modes.hold
+local hand_modes = defines.control_behavior.inserter and defines.control_behavior.inserter.hand_read_mode
+local HAND_HOLD = hand_modes and hand_modes.hold
 
 M.STATUS_TEXT = {
-  mode = "конвейер не в режиме «Удержание»: именованные сигналы от него работать не будут",
+  mode = "режим чтения не «Удержание»: именованные сигналы от объекта работать не будут",
   disabled = "чтение содержимого выключено: объект ничего не отдаёт в сеть",
   unsupported = "этот тип объекта пока не поддерживается",
 }
@@ -62,6 +67,38 @@ function M.read(entity)
       signals.add_items(map, entity.get_transport_line(i).get_contents())
     end
     return map, "ok"
+
+  elseif t == "storage-tank" then
+    -- Жидкость: сигнал = количество, округлённое вниз.
+    local cb = entity.get_control_behavior()
+    if cb and prop(cb, "read_contents") == false then return map, "disabled" end
+    local fluid = entity.fluidbox[1]
+    if fluid and fluid.amount >= 1 then
+      map["fluid|" .. fluid.name .. "|normal"] = math.floor(fluid.amount)
+    end
+    return map, "ok"
+
+  elseif t == "inserter" then
+    -- Что сейчас в руке манипулятора (только режим «Удержание»).
+    local cb = entity.get_control_behavior()
+    if not (cb and prop(cb, "circuit_read_hand_contents")) then return map, "disabled" end
+    if HAND_HOLD == nil or prop(cb, "circuit_hand_read_mode") ~= HAND_HOLD then return map, "mode" end
+    local stack = entity.held_stack
+    if stack and stack.valid_for_read then
+      signals.add_items(map, { { name = stack.name, count = stack.count, quality = stack.quality } })
+    end
+    return map, "ok"
+
+  elseif t == "accumulator" then
+    -- Заряд в процентах на выбранном в аккумуляторе сигнале (по умолчанию A).
+    local cb = entity.get_control_behavior()
+    if cb and prop(cb, "read_charge") == false then return map, "disabled" end
+    local sig = (cb and prop(cb, "output_signal")) or { type = "virtual", name = "signal-A" }
+    local buffer = entity.electric_buffer_size or 0
+    local pct = buffer > 0 and math.floor(entity.energy / buffer * 100) or 0
+    local k = signals.key(sig)
+    if k and pct ~= 0 then map[k] = pct end
+    return map, "ok"
   end
 
   return map, "unsupported"
@@ -98,7 +135,15 @@ end
 -- сохранении, в сетевой игре синхронизируется движком и уничтожается вместе
 -- с сущностью. Ссылка лежит в rec.label.
 ---------------------------------------------------------------------------
-local LABEL_OFFSET = { 0, -0.55 } -- чуть выше верхнего края объекта 1x1
+-- Подпись чуть выше верхнего края рамки выделения объекта
+-- (у резервуара 3x3 и у сундука 1x1 край на разной высоте).
+local function label_offset(e)
+  local ok, box = pcall(function() return e.selection_box end)
+  if ok and box and box.left_top and e.position then
+    return { 0, box.left_top.y - e.position.y - 0.05 }
+  end
+  return { 0, -0.55 }
+end
 
 function M.update_label(rec)
   local e = rec.entity
@@ -110,7 +155,7 @@ function M.update_label(rec)
   rec.label = rendering.draw_text({
     text = rec.name,
     surface = e.surface,
-    target = { entity = e, offset = LABEL_OFFSET },
+    target = { entity = e, offset = label_offset(e) },
     color = names.tint,
     scale = 1.0,
     alignment = "center",

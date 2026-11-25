@@ -73,6 +73,9 @@ local build_filters = {
   { filter = "type", type = "container" },
   { filter = "type", type = "logistic-container" },
   { filter = "type", type = "transport-belt" },
+  { filter = "type", type = "storage-tank" },
+  { filter = "type", type = "inserter" },
+  { filter = "type", type = "accumulator" },
 }
 
 for _, ev in pairs({

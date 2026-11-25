@@ -21,10 +21,10 @@ local SRC_PANEL = "ns_source_panel"
 local NETWORK_ITEM = "Вся сеть"
 local WARN_COLOR = { 1, 0.65, 0.3 }
 local RED = "[color=1,0.35,0.35]R[/color]"
--- Ширина списков условий и выходов: самая длинная строка
--- (связка + 2 операнда с источником, сигналом и R/G + сравнение + корзина)
+-- Ширина списков условий и выходов: самая длинная строка (связка + 2 операнда
+-- с источником, агрегатом, сигналом, R/G и значением + сравнение + корзина)
 -- помещается целиком, горизонтальная прокрутка не нужна.
-local LIST_WIDTH = 780
+local LIST_WIDTH = 1060
 local GREEN = "[color=0.35,1,0.35]G[/color]"
 
 ---------------------------------------------------------------------------
@@ -89,6 +89,13 @@ end
 ---------------------------------------------------------------------------
 -- Операнд: [источник] [сигнал] [R/G]
 ---------------------------------------------------------------------------
+local function agg_index(agg)
+  for i, a in ipairs(logic.AGGREGATES) do
+    if a == agg then return i end
+  end
+  return 1
+end
+
 local function add_source_dropdown(parent, c, list, current, tags)
   local items, selected = { NETWORK_ITEM }, 1
   for i, name in ipairs(list) do
@@ -126,15 +133,51 @@ local function add_networks(parent, nets, tags)
   return flow
 end
 
-local function add_operand(parent, c, list, op, tags)
+-- Текущее значение операнда и состав его карты сигналов (для подсказки).
+local function operand_view(ctx, op)
+  if not (ctx and op.signal and op.signal.name) then return "", "" end
+  local m = logic.operand_map(ctx, op)
+  local keys = signals.sorted_keys(m)
+  table.sort(keys, function(a, b)
+    if m[a] ~= m[b] then return m[a] > m[b] end
+    return a < b
+  end)
+  local lines = {}
+  local where = op.source and (op.source .. ", " .. logic.AGGREGATE_LABELS[agg_index(op.agg)]) or "вся сеть"
+  lines[1] = "[font=default-bold]" .. where .. "[/font]"
+  for i = 1, math.min(#keys, 15) do lines[#lines + 1] = signals.rich(keys[i]) .. " " .. m[keys[i]] end
+  if #keys > 15 then lines[#lines + 1] = "… и ещё " .. (#keys - 15) end
+  if #keys == 0 then lines[#lines + 1] = "сигналов нет" end
+  local caption
+  if logic.wildcard(op.signal) then
+    caption = #keys .. " сигн."
+  else
+    caption = "= " .. tostring(m[signals.key(op.signal)] or 0)
+  end
+  return caption, table.concat(lines, "\n")
+end
+
+-- without_signal: у строки выхода кнопка сигнала уже стоит в начале строки.
+local function add_operand(parent, c, list, op, tags, ctx, without_signal)
   local function t(action)
     local x = { ns_action = action }
     for k, v in pairs(tags) do x[k] = v end
     return x
   end
   add_source_dropdown(parent, c, list, op.source, t("source"))
-  add_signal_button(parent, op.signal, t("signal"))
+  if op.source then
+    local agg = parent.add({
+      type = "drop-down", items = logic.AGGREGATE_LABELS, selected_index = agg_index(op.agg),
+      tags = t("agg"),
+      tooltip = "Как свернуть группу: сумма, минимум, максимум, среднее по объектам или число объектов, где сигнал есть",
+    })
+    agg.style.width = 84
+  end
+  if not without_signal then add_signal_button(parent, op.signal, t("signal")) end
   add_networks(parent, op.networks or {}, tags)
+  local caption, tip = operand_view(ctx, op)
+  local val = parent.add({ type = "label", name = "ns_val_" .. tags.side, caption = caption, tooltip = tip })
+  val.style.width = 64
 end
 
 local function row_frame(parent, name, fulfilled)
@@ -175,6 +218,7 @@ local function fill_content(content, c)
   local unit = c.entity.unit_number
   local list = source_names(c)
   local each = c.each or {}
+  local ctx = combinator.make_context(c)
 
   -- Статус и превью, как у ванильных объектов
   local status = content.add({ type = "flow", name = "ns_status", direction = "horizontal" })
@@ -215,7 +259,7 @@ local function fill_content(content, c)
       dd.style.width = 64
     end
 
-    add_operand(row, c, list, cond.left, { unit = unit, row = i, side = "left" })
+    add_operand(row, c, list, cond.left, { unit = unit, row = i, side = "left" }, ctx)
 
     local cmp = 1
     for k, v in ipairs(logic.COMPARATORS) do
@@ -228,7 +272,7 @@ local function fill_content(content, c)
     })
 
     if cond.right.signal then
-      add_operand(row, c, list, cond.right, { unit = unit, row = i, side = "right" })
+      add_operand(row, c, list, cond.right, { unit = unit, row = i, side = "right" }, ctx)
     else
       local tf = row.add({
         type = "textfield", text = tostring(cond.right.constant or 0),
@@ -263,8 +307,7 @@ local function fill_content(content, c)
     })
     mdd.style.width = 170
     if out.mode == "input" then
-      add_source_dropdown(row, c, list, out.source, { ns_action = "source", unit = unit, row = i, side = "out" })
-      add_networks(row, out.networks or {}, { unit = unit, row = i, side = "out" })
+      add_operand(row, c, list, out, { unit = unit, row = i, side = "out" }, ctx, true)
     end
     spacer(row)
     trash_button(row, { ns_action = "del_out", unit = unit, row = i })
@@ -296,11 +339,11 @@ local function fill_content(content, c)
     end
   end
   if not any then
-    wrapped_label(content, "Нет. Подключите провод к сундуку или конвейеру и задайте ему имя в его окне.")
+    wrapped_label(content, "Нет. Подключите провод к сундуку, конвейеру, резервуару, манипулятору или аккумулятору и задайте ему имя в его окне.")
   end
 
-  if logic.has_wildcards(c.config) then
-    local l = wrapped_label(content, "Сигналы «каждый», «любой» и «все» пока не поддерживаются и игнорируются.")
+  for _, text in ipairs(logic.warnings(c.config)) do
+    local l = wrapped_label(content, text)
     l.style.font_color = WARN_COLOR
   end
 end
@@ -350,17 +393,21 @@ end
 ---------------------------------------------------------------------------
 local HELP_TEXT = {
   { "Зачем это нужно",
-    "В обычной игре сигналы всех объектов на одном проводе складываются, и узнать, сколько железа в конкретном сундуке, нельзя. Этот комбинатор умеет брать значение не из всей сети, а от конкретного именованного источника." },
+    "В обычной игре сигналы всех объектов на одном проводе складываются, и узнать, сколько железа в конкретном сундуке, нельзя. Этот комбинатор берёт значение не только из всей сети, но и от конкретного именованного источника или группы источников." },
   { "Имена источников",
-    "Откройте сундук или конвейер: справа от его окна появится поле «Имя источника» (только если к объекту подключён провод). Одинаковое имя у нескольких объектов объединяет их в группу, и их содержимое суммируется. В режиме Alt имя видно над объектом." },
+    "Источники: сундуки, конвейеры, резервуары, манипуляторы (что в руке) и аккумуляторы (заряд в %). Откройте объект: справа появится поле «Имя источника» (если к объекту подключён провод). Одинаковое имя у нескольких объектов объединяет их в группу. В режиме Alt имя видно над объектом." },
+  { "Группы и агрегаты",
+    "Для группы выберите, как её свернуть: «сумма» — всё вместе; «мин» и «макс» — самый пустой и самый полный объект (объект без сигнала считается за 0); «средн.» — среднее по объектам; «кол-во» — сколько объектов содержат сигнал." },
   { "Условия",
-    "Для каждого операнда выберите источник («Вся сеть» или имя), сигнал и провода R/G. Справа можно поставить константу или второй сигнал. Связки «И»/«ИЛИ» работают как в ванили: «И» связывает сильнее. Выполненные условия подсвечиваются зелёным." },
+    "Для каждого операнда выберите источник, сигнал и провода R/G. Справа — константа или второй операнд. «И» связывает сильнее, чем «ИЛИ». Выполненные условия подсвечиваются зелёным. Рядом с операндом видно его текущее значение, при наведении — весь состав." },
+  { "Каждый, любой, все",
+    "«Любой» слева: условие истинно, если ему удовлетворяет хотя бы один сигнал. «Все» слева: если удовлетворяют все (на пустом входе — истинно). «Каждый» считает схему по каждому сигналу отдельно, его можно ставить и слева, и справа: «каждый @ Склад А < каждый @ Склад Б» сравнивает склады по каждому предмету. На выходе «каждый» выдаёт прошедшие сигналы, «все» — все сигналы источника выхода." },
   { "Провода R и G",
-    "Для «Всей сети» это обычный выбор красной и зелёной сети. Для именованного источника учитываются только объекты, подключённые к комбинатору проводом выбранного цвета. Объект, подключённый обоими проводами, считается один раз." },
+    "Для «Всей сети» это выбор красной и зелёной сети. Для именованного источника учитываются только объекты, подключённые к комбинатору проводом выбранного цвета. Объект на обоих проводах считается один раз." },
   { "Выход",
-    "Если условия выполнены, на выход подаются выбранные сигналы: со значением 1 или со значением со входа (из сети или от источника)." },
+    "Если условия выполнены, на выход подаются выбранные сигналы: со значением 1 или со значением со входа (из сети или от источника, с агрегатом)." },
   { "Ограничения",
-    "Конвейеры работают только в режиме «Удержание». В режимах «Импульс» и «Удержание (все конвейеры)» именованные сигналы от них не работают, об этом появится предупреждение. Сигналы «каждый», «любой» и «все» пока не поддерживаются. Остальные объекты на проводе по-прежнему видят обычную сумму." },
+    "Конвейеры и манипуляторы работают только в режиме «Удержание». «Любой» и «все» справа и «любой» на выходе не поддерживаются. Остальные объекты на проводе по-прежнему видят обычную сумму." },
   { "Чертежи и копирование",
     "Настройки комбинатора и имена источников сохраняются в чертежах и копируются через Shift+ПКМ / Shift+ЛКМ." },
 }
@@ -390,10 +437,19 @@ end
 ---------------------------------------------------------------------------
 -- Панель имени на сундуке / конвейере (пристыкована к ванильному окну)
 ---------------------------------------------------------------------------
+local ANCHORS = {
+  ["container"] = "container_gui",
+  ["logistic-container"] = "container_gui",
+  ["transport-belt"] = "transport_belt_gui",
+  ["storage-tank"] = "pipe_gui",
+  ["inserter"] = "inserter_gui",
+  ["accumulator"] = "accumulator_gui",
+}
+
+-- nil -> запасной вариант: отдельное окно на экране.
 local function anchor_for(entity)
-  local rgt = defines.relative_gui_type
-  if entity.type == "transport-belt" then return rgt.transport_belt_gui end
-  return rgt.container_gui
+  local key = ANCHORS[entity.type]
+  return key and defines.relative_gui_type[key] or nil
 end
 
 local function source_status_caption(entity)
@@ -576,6 +632,10 @@ function M.on_selection(e)
     local op = operand_of(c, tags)
     if not op then return end
     op.source = picked_name(tags, idx)
+  elseif a == "agg" then
+    local op = operand_of(c, tags)
+    if not op then return end
+    op.agg = logic.AGGREGATES[idx] or "sum"
   elseif a == "out_mode" and out then
     out.mode = (idx == 2) and "input" or "one"
   else
@@ -638,8 +698,25 @@ function M.tick()
         status.ns_text.caption = text
         status.ns_result.caption = result_caption(c)
       end
+      local ctx = combinator.make_context(c)
+      local function update_val(row, op, side)
+        local l = row and row["ns_val_" .. side]
+        if l and op then
+          local caption, tip = operand_view(ctx, op)
+          l.caption = caption
+          l.tooltip = tip
+        end
+      end
+      local outs = content.ns_outs and content.ns_outs.ns_list
+      if outs then
+        for i, out in ipairs(c.config.outputs) do update_val(outs["row_" .. i], out, "out") end
+      end
       local conds = content.ns_conds and content.ns_conds.ns_list
       if conds then
+        for i, cond in ipairs(c.config.conditions) do
+          update_val(conds["row_" .. i], cond.left, "left")
+          update_val(conds["row_" .. i], cond.right, "right")
+        end
         local each = c.each or {}
         for i = 1, #c.config.conditions do
           local row = conds["row_" .. i]
