@@ -32,6 +32,7 @@ script.on_configuration_changed(function()
   end
   storage.topology_dirty = true
   relay.migrate() -- 0.3.x -> 0.4.0: видимой частью реле стала опора
+  sources.ensure_labels() -- 0.5.0: подписи у источников, названных раньше
   for _, player in pairs(game.players) do
     gui.close(player)
     gui.close_source_panel(player)

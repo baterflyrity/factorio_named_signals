@@ -3,6 +3,7 @@
 -- Вклад читается напрямую из состояния объекта (вариант А),
 -- а не из сети: в сети сигналы разных объектов уже сложены.
 local signals = require("scripts.signals")
+local names = require("scripts.names")
 
 local M = {}
 
@@ -92,7 +93,44 @@ function M.output_network_ids(entity)
 end
 
 ---------------------------------------------------------------------------
--- Реестр имён: storage.sources[unit_number] = { entity = LuaEntity, name = string }
+-- Подписи в режиме Alt: текст с именем над объектом.
+-- Это объект отрисовки (LuaRenderObject), привязанный к сущности: хранится в
+-- сохранении, в сетевой игре синхронизируется движком и уничтожается вместе
+-- с сущностью. Ссылка лежит в rec.label.
+---------------------------------------------------------------------------
+local LABEL_OFFSET = { 0, -0.55 } -- чуть выше верхнего края объекта 1x1
+
+function M.update_label(rec)
+  local e = rec.entity
+  if not (e and e.valid) then return end
+  if rec.label and rec.label.valid then
+    rec.label.text = rec.name
+    return
+  end
+  rec.label = rendering.draw_text({
+    text = rec.name,
+    surface = e.surface,
+    target = { entity = e, offset = LABEL_OFFSET },
+    color = names.tint,
+    scale = 1.0,
+    alignment = "center",
+    vertical_alignment = "bottom",
+    only_in_alt_mode = true,
+    forces = { e.force },
+  })
+end
+
+local function destroy_label(rec)
+  if rec and rec.label and rec.label.valid then rec.label.destroy() end
+end
+
+-- Для миграции: создать недостающие подписи у уже названных объектов.
+function M.ensure_labels()
+  for _, rec in pairs(storage.sources) do M.update_label(rec) end
+end
+
+---------------------------------------------------------------------------
+-- Реестр имён: storage.sources[unit_number] = { entity = LuaEntity, name = string, label = LuaRenderObject }
 -- Имена не уникальны: одинаковое имя у нескольких объектов = группа.
 ---------------------------------------------------------------------------
 function M.get_name(entity)
@@ -104,11 +142,18 @@ function M.set_name(entity, name)
   name = name and name:match("^%s*(.-)%s*$") or ""
   local id = entity.unit_number
   if not id then return end
+  local rec = storage.sources[id]
   if name == "" then
+    destroy_label(rec)
     storage.sources[id] = nil
   else
-    if not storage.sources[id] then script.register_on_object_destroyed(entity) end
-    storage.sources[id] = { entity = entity, name = name }
+    if not rec then
+      script.register_on_object_destroyed(entity)
+      rec = { entity = entity }
+      storage.sources[id] = rec
+    end
+    rec.name = name
+    M.update_label(rec)
   end
   storage.topology_dirty = true
 end
