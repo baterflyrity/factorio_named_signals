@@ -25,7 +25,7 @@ local hand_modes = defines.control_behavior.inserter and defines.control_behavio
 local HAND_HOLD = hand_modes and hand_modes.hold
 
 M.STATUS_TEXT = {
-  mode = "режим чтения не «Удержание»: именованные сигналы от объекта работать не будут",
+  mode = "режим чтения не «Непрерывно»: именованные сигналы от объекта работать не будут",
   disabled = "чтение содержимого выключено: объект ничего не отдаёт в сеть",
   unsupported = "этот тип объекта пока не поддерживается",
 }
@@ -79,7 +79,7 @@ function M.read(entity)
     return map, "ok"
 
   elseif t == "inserter" then
-    -- Что сейчас в руке манипулятора (только режим «Удержание»).
+    -- Что сейчас в руке манипулятора (только режим «Непрерывно»).
     local cb = entity.get_control_behavior()
     if not (cb and prop(cb, "circuit_read_hand_contents")) then return map, "disabled" end
     if HAND_HOLD == nil or prop(cb, "circuit_hand_read_mode") ~= HAND_HOLD then return map, "mode" end
