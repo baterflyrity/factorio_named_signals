@@ -14,16 +14,8 @@ local names = require("scripts.names")
 local pole = data.raw["electric-pole"]["medium-electric-pole"]
 local switch = data.raw["power-switch"]["power-switch"]
 
--- Покрасить все обычные слои спрайта (тени и свечение не трогаем).
-local function tint_layers(node)
-  if type(node) ~= "table" then return end
-  if node.filename and not node.draw_as_shadow and not node.draw_as_glow and node.blend_mode ~= "additive" then
-    node.tint = names.relay_tint
-  end
-  for _, v in pairs(node) do
-    if type(v) == "table" then tint_layers(v) end
-  end
-end
+local tint = require("prototypes.tint")
+local function tint_layers(node) tint(node, names.relay_tint) end
 
 -- Кадр опоры «первое направление» из листа с 4 направлениями -> Animation на 1 кадр.
 local function pole_frame(layer)
@@ -58,6 +50,15 @@ relay.drawing_box_vertical_extension = pole.drawing_box_vertical_extension
 relay.damaged_trigger_effect = table.deepcopy(pole.damaged_trigger_effect)
 relay.water_reflection = table.deepcopy(pole.water_reflection)
 relay.wire_max_distance = pole.maximum_wire_distance -- 9, как у средней опоры
+
+-- Подсветка зоны питания 7x7 при установке и при наведении — той же
+-- текстурой, что у ванильных опор.
+relay.radius_visualisation_specification = {
+  sprite = table.deepcopy(pole.radius_visualisation_picture),
+  distance = pole.supply_area_distance,
+  draw_in_cursor = true,
+  draw_on_selection = true,
+}
 
 -- Модель: средняя опора, слегка синяя.
 relay.power_on_animation = { layers = { pole_frame(pole_layers[1]), pole_frame(pole_layers[2]) } }

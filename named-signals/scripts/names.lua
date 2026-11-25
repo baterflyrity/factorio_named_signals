@@ -2,7 +2,7 @@
 return {
   combinator = "ns-decider-combinator",
   output = "ns-decider-output",
-  tint = { r = 0.55, g = 0.85, b = 1.0, a = 1.0 },
+  tint = { r = 0.62, g = 0.78, b = 1.0, a = 1.0 },
 
   relay = "ns-relay-pole",
   relay_supply = "ns-relay-pole-supply",

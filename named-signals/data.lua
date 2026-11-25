@@ -1,5 +1,6 @@
 local util = require("util")
 local names = require("scripts.names")
+local tint_layers = require("prototypes.tint")
 
 local function tinted_icons(proto)
   if proto.icons then
@@ -23,6 +24,7 @@ entity.icon = nil
 entity.minable = { mining_time = 0.1, result = names.combinator }
 entity.next_upgrade = nil
 entity.fast_replaceable_group = nil
+tint_layers(entity.sprites, names.tint) -- корпус слегка синий; светодиоды и символы не трогаем
 
 local item = table.deepcopy(data.raw.item["decider-combinator"])
 item.name = names.combinator
