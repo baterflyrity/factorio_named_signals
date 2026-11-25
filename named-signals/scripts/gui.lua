@@ -21,6 +21,10 @@ local SRC_PANEL = "ns_source_panel"
 local NETWORK_ITEM = "Вся сеть"
 local WARN_COLOR = { 1, 0.65, 0.3 }
 local RED = "[color=1,0.35,0.35]R[/color]"
+-- Ширина списков условий и выходов: самая длинная строка
+-- (связка + 2 операнда с источником, сигналом и R/G + сравнение + корзина)
+-- помещается целиком, горизонтальная прокрутка не нужна.
+local LIST_WIDTH = 780
 local GREEN = "[color=0.35,1,0.35]G[/color]"
 
 ---------------------------------------------------------------------------
@@ -191,8 +195,9 @@ local function fill_content(content, c)
   heading(content, "Условия")
   local conds = content.add({ type = "scroll-pane", name = "ns_conds", style = "deep_scroll_pane", direction = "vertical" })
   conds.style.maximal_height = 360
-  conds.style.horizontally_stretchable = true
+  conds.style.width = LIST_WIDTH
   conds.style.padding = 4
+  conds.horizontal_scroll_policy = "never"
   local cond_list = list_flow(conds)
   for i, cond in ipairs(c.config.conditions) do
     local row = row_frame(cond_list, "row_" .. i, each[i])
@@ -244,8 +249,9 @@ local function fill_content(content, c)
   heading(content, "Выход")
   local outs = content.add({ type = "scroll-pane", name = "ns_outs", style = "deep_scroll_pane", direction = "vertical" })
   outs.style.maximal_height = 240
-  outs.style.horizontally_stretchable = true
+  outs.style.width = LIST_WIDTH
   outs.style.padding = 4
+  outs.horizontal_scroll_policy = "never"
   local out_list = list_flow(outs)
   for i, out in ipairs(c.config.outputs) do
     local row = row_frame(out_list, "row_" .. i, false)
@@ -417,6 +423,15 @@ local function build_source_panel(frame, entity)
   st.style.font_color = WARN_COLOR
 end
 
+-- Как у ванильной панели логической сети: имя нужно только объектам,
+-- к которым подключён хотя бы один провод.
+local function has_circuit(entity)
+  for _, wid in ipairs(sources.CONNECTORS) do
+    if entity.get_circuit_network(wid) then return true end
+  end
+  return false
+end
+
 function M.open_source_panel(player, entity)
   M.close_source_panel(player)
   local anchor_gui = anchor_for(entity)
@@ -432,6 +447,7 @@ function M.open_source_panel(player, entity)
     frame.location = { x = 20, y = 200 }
   end
   build_source_panel(frame, entity)
+  frame.visible = has_circuit(entity)
   storage.open_source[player.index] = entity
 end
 
@@ -644,6 +660,7 @@ function M.tick()
       if p then M.close_source_panel(p) else storage.open_source[pi] = nil end
     else
       local panel = source_panel(p)
+      if panel then panel.visible = has_circuit(entity) end
       local list = panel and panel.ns_box and panel.ns_box.ns_list
       if list then list.ns_state.caption = source_status_caption(entity) end
     end

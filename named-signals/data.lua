@@ -69,3 +69,5 @@ if tech then
 else
   recipe.enabled = true
 end
+
+require("prototypes.relay")

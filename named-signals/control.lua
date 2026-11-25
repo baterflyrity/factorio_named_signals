@@ -7,12 +7,14 @@ local combinator = require("scripts.combinator")
 local sources = require("scripts.sources")
 local gui = require("scripts.gui")
 local logic = require("scripts.logic")
+local relay = require("scripts.relay")
 
 local function init_storage()
   storage.combinators = storage.combinators or {}
   storage.sources = storage.sources or {}
   storage.open = storage.open or {}
   storage.open_source = storage.open_source or {}
+  storage.relays = storage.relays or {}
   if storage.topology_dirty == nil then storage.topology_dirty = true end
 end
 
@@ -53,6 +55,8 @@ local function on_built(e)
   local tags = e.tags
   if entity.name == names.combinator then
     combinator.on_built(entity, tags)
+  elseif entity.name == names.relay then
+    relay.on_built(entity)
   elseif sources.is_source(entity) and tags and tags.ns_name then
     sources.set_name(entity, tags.ns_name)
   end
@@ -60,6 +64,7 @@ end
 
 local build_filters = {
   { filter = "name", name = names.combinator },
+  { filter = "name", name = names.relay },
   { filter = "type", type = "container" },
   { filter = "type", type = "logistic-container" },
   { filter = "type", type = "transport-belt" },
@@ -82,6 +87,7 @@ script.on_event(defines.events.on_object_destroyed, function(e)
   local id = e.useful_id
   if not id then return end
   combinator.on_destroyed(id)
+  relay.on_destroyed(id)
   if storage.sources[id] then
     storage.sources[id] = nil
     storage.topology_dirty = true
