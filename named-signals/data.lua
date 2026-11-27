@@ -1,6 +1,7 @@
 local util = require("util")
 local names = require("scripts.names")
 local tint_layers = require("prototypes.tint")
+local cost = require("prototypes.cost")
 
 local function tinted_icons(proto)
   if proto.icons then
@@ -36,6 +37,7 @@ item.order = (item.order or "c") .. "-ns"
 local recipe = table.deepcopy(data.raw.recipe["decider-combinator"])
 recipe.name = names.combinator
 recipe.results = { { type = "item", name = names.combinator, amount = 1 } }
+recipe.ingredients = cost.scale(recipe.ingredients, cost.COMBINATOR) -- +50% к оригиналу
 recipe.main_product = nil
 recipe.enabled = false
 

@@ -15,6 +15,7 @@
 local util = require("util")
 local names = require("scripts.names")
 local tint = require("prototypes.tint")
+local cost = require("prototypes.cost")
 
 local pole = data.raw["electric-pole"]["medium-electric-pole"]
 local switch = data.raw["power-switch"]["power-switch"]
@@ -105,7 +106,7 @@ input.connection_points = { table.deepcopy(cp) }
 input.radius_visualisation_picture = nil
 
 ---------------------------------------------------------------------------
--- Предмет, рецепт (сумма средней опоры и выключателя), технология
+-- Предмет, рецепт (сумма средней опоры и выключателя +30%), технология
 ---------------------------------------------------------------------------
 local item = table.deepcopy(data.raw.item["medium-electric-pole"])
 item.name = names.relay_item
@@ -138,7 +139,7 @@ local recipe = {
   name = names.relay_item,
   enabled = false,
   energy_required = (r_pole.energy_required or 0.5) + (r_switch.energy_required or 0.5),
-  ingredients = merged_ingredients(r_pole, r_switch),
+  ingredients = cost.scale(merged_ingredients(r_pole, r_switch), cost.RELAY),
   results = { { type = "item", name = names.relay_item, amount = 1 } },
 }
 

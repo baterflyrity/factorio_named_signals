@@ -53,7 +53,8 @@ data.raw.item = {
   ["medium-electric-pole"] = { type = "item", name = "medium-electric-pole", icon = "pole.png", order = "a[energy]-b" },
 }
 data.raw.recipe = {
-  ["decider-combinator"] = { type = "recipe", name = "decider-combinator", ingredients = {}, results = {} },
+  ["decider-combinator"] = { type = "recipe", name = "decider-combinator", ingredients = {
+    { type = "item", name = "copper-cable", amount = 5 }, { type = "item", name = "electronic-circuit", amount = 5 } }, results = {} },
   ["medium-electric-pole"] = { type = "recipe", name = "medium-electric-pole", ingredients = {
     { type = "item", name = "iron-stick", amount = 4 }, { type = "item", name = "steel-plate", amount = 2 },
     { type = "item", name = "copper-cable", amount = 2 } } },
@@ -82,7 +83,16 @@ assert(input.hidden and input.supply_area_distance < 0.1 and input.maximum_wire_
 assert(not data.raw["electric-pole"]["ns-relay-pole-supply"], "old supply removed")
 local amounts = {}
 for _, i in ipairs(recipe.ingredients) do amounts[i.name] = i.amount end
-assert(amounts["copper-cable"] == 7 and amounts["iron-stick"] == 4 and amounts["electronic-circuit"] == 2, "recipe merge")
+-- +30% к сумме (4 стержня, 2 стали, 7 проводов, 5 пластин, 2 схемы), округление вверх
+assert(amounts["iron-stick"] == 6 and amounts["steel-plate"] == 3 and amounts["copper-cable"] == 10
+  and amounts["iron-plate"] == 7 and amounts["electronic-circuit"] == 3, "relay +30%")
+local dc_amounts = {}
+for _, i in ipairs(data.raw.recipe["ns-decider-combinator"].ingredients) do dc_amounts[i.name] = i.amount end
+assert(dc_amounts["copper-cable"] == 8 and dc_amounts["electronic-circuit"] == 8, "combinator +50%")
+assert(#data.raw.recipe["decider-combinator"].ingredients == 2 and data.raw.recipe["decider-combinator"].ingredients[1].amount == 5, "vanilla untouched")
+local cost = require("prototypes.cost")
+assert(cost.scale({ { name = "x", amount = 2 } }, 1.5)[1].amount == 3, "exact product not rounded up")
+assert(cost.scale({ { type = "fluid", name = "water", amount = 10 } }, 1.3)[1].amount == 13, "fluid exact")
 assert(recipe.energy_required == 2.5, "energy")
 local found = false
 for _, e in ipairs(data.raw.technology["electric-energy-distribution-1"].effects) do
